@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -22,6 +22,7 @@ import { GmailConnector } from "@/components/gmail-connector";
 import { LabReportUpload } from "@/components/lab-report-upload";
 import { LabGeminiPanel } from "@/components/lab-gemini-panel";
 import { LabReportChat } from "@/components/lab-report-chat";
+import { supabase } from "@/lib/supabase-client";
 
 interface LabReport {
   id: string;
@@ -42,122 +43,66 @@ interface LabReport {
   uploaded_at: string;
 }
 
-// Dummy data for starter template
-const dummyLabReports: LabReport[] = [
-  {
-    id: "1",
-    file_name: "Complete Blood Count - Jan 2024.pdf",
-    raw_text: "Complete Blood Count results from January 2024",
-    structured_data: {
-      testType: "Complete Blood Count",
-      date: "2024-01-15",
-      testResults: [
-        {
-          name: "Hemoglobin",
-          value: "14.2",
-          unit: "g/dL",
-          referenceRange: "13.0 - 17.0",
-          status: "normal",
-        },
-        {
-          name: "White Blood Cell Count",
-          value: "7.5",
-          unit: "x10^9/L",
-          referenceRange: "4.0 - 11.0",
-          status: "normal",
-        },
-        {
-          name: "Platelet Count",
-          value: "250",
-          unit: "x10^9/L",
-          referenceRange: "150 - 450",
-          status: "normal",
-        },
-      ],
-    },
-    ai_analysis: "Your complete blood count results are within normal ranges. All values appear healthy and show no signs of concern. Continue with your regular health routine.",
-    uploaded_at: "2024-01-15T10:30:00Z",
-  },
-  {
-    id: "2",
-    file_name: "Lipid Panel - Dec 2023.pdf",
-    raw_text: "Lipid Panel results from December 2023",
-    structured_data: {
-      testType: "Lipid Panel",
-      date: "2023-12-10",
-      testResults: [
-        {
-          name: "Total Cholesterol",
-          value: "195",
-          unit: "mg/dL",
-          referenceRange: "< 200",
-          status: "normal",
-        },
-        {
-          name: "LDL Cholesterol",
-          value: "125",
-          unit: "mg/dL",
-          referenceRange: "< 100",
-          status: "high",
-        },
-        {
-          name: "HDL Cholesterol",
-          value: "55",
-          unit: "mg/dL",
-          referenceRange: "> 40",
-          status: "normal",
-        },
-        {
-          name: "Triglycerides",
-          value: "150",
-          unit: "mg/dL",
-          referenceRange: "< 150",
-          status: "normal",
-        },
-      ],
-    },
-    ai_analysis: "Your lipid panel shows mostly normal results. Your LDL cholesterol is slightly elevated. Consider discussing dietary changes with your healthcare provider.",
-    uploaded_at: "2023-12-10T14:20:00Z",
-  },
-  {
-    id: "3",
-    file_name: "Metabolic Panel - Nov 2023.pdf",
-    raw_text: "Metabolic Panel results from November 2023",
-    structured_data: {
-      testType: "Comprehensive Metabolic Panel",
-      date: "2023-11-05",
-      testResults: [
-        {
-          name: "Glucose",
-          value: "95",
-          unit: "mg/dL",
-          referenceRange: "70 - 100",
-          status: "normal",
-        },
-        {
-          name: "Creatinine",
-          value: "1.0",
-          unit: "mg/dL",
-          referenceRange: "0.7 - 1.3",
-          status: "normal",
-        },
-        {
-          name: "Sodium",
-          value: "140",
-          unit: "mEq/L",
-          referenceRange: "136 - 145",
-          status: "normal",
-        },
-      ],
-    },
-    ai_analysis: "All metabolic panel values are within normal ranges. Your kidney function, electrolyte balance, and glucose levels appear healthy.",
-    uploaded_at: "2023-11-05T09:15:00Z",
-  },
-];
+
 
 export default function LabReportsPage() {
-  const [labReports, setLabReports] = useState<LabReport[]>(dummyLabReports);
+  const [labReports, setLabReports] = useState<LabReport[]>();
   const [selectedReport, setSelectedReport] = useState<LabReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  
+  const fetchLabReports = async () => {
+    if(!supabase){
+      setLoading(false)
+      return;
+    }
+    try {
+      setLoading(true);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        console.log("No user found");
+        setLoading(false);
+        return;
+      }
+
+      console.log("Fetching lab reports for user:", user.id);
+
+      const {
+        data: {session},
+      } = await supabase.auth.getSession();
+
+      const headers: HeadersInit = {};
+      if (session?.access_token) {
+        headers.Authorization = `Bearer ${session.access_token}`;
+      }
+      const response = await fetch(`api/lab/reports?userId=${user.id}`, {headers});
+
+      const data = await response.json();
+
+      console.log("Fetched lab reports:", data);
+
+      if (data.success) {
+        console.log("Setting lab reports:", data.labReports?.length || 0,
+          " reports");
+        setLabReports(data.labReports || []);
+      } else {
+        console.error("Error fetching lab reports:", data.error
+        );
+      }
+
+    } catch (error) {
+      console.error("Error fetching lab reports:", error);
+    } finally {
+      setLoading(false);
+  }
+  };
+
+  useEffect(() => {
+    fetchLabReports();
+  }, []);
+
 
   const handleDelete = (reportId: string) => {
     if (confirm("Are you sure you want to delete this report?")) {

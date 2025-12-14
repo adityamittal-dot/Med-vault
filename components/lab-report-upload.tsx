@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Upload, FileText, X } from "lucide-react";
 import {
@@ -10,15 +11,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { supabase } from "@/lib/supabase-client";
 
 interface LabReportUploadProps {
   onUploadSuccess?: () => void;
 }
 
 export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
+  const router = useRouter();
+
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -37,21 +42,104 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
     }
   };
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (!file) {
       setError("Please select a file");
       return;
     }
 
-    // In a starter template, we just simulate success
+    if (!supabase) {
+      setError("Authentication service unavailable");
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+
+    try {
+      const {
+        data: { user: userData },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        console.error("auth error:", userError);
+        throw new Error(`Authentication error: ${userError.message}`);
+      }
+
+      if (!userData) {
+        throw new Error("please sign in to upload lab reports");
+      }
+
+      let session = null;
+
+      const {
+        data: { session: sessionData },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        console.error("session error:", sessionError);
+      }
+
+      if (sessionData) {
+        session = sessionData;
+      } else {
+        try {
+          const {
+            data: { session: refreshedSession },
+          } = await supabase.auth.refreshSession();
+          session = refreshedSession;
+        } catch (err) {
+          console.error("session refresh error:", err);
+        }
+      }
+
+      if (!session || !session.access_token) {
+        setError(
+          "No active session found. Please sign in again and try uploading your lab report."
+        );
+        setTimeout(() => {
+          router.push("/auth");
+        }, 2000);
+        setUploading(false);
+        return;
+      }
+
+      const user = userData;
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("fileName", file.name);
+      formData.append("userId", user.id);
+
+      await fetch("/api/lab/upload", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+      
+
+    } catch (err) {
+      console.error("upload error:", err);
+    }
+
+    // Demo success simulation (unchanged logic)
     setError("Upload successful! (This is a demo - no actual upload occurred)");
     setTimeout(() => {
       setOpen(false);
       setFile(null);
       setError(null);
+      setUploading(false);
+
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
+
       if (onUploadSuccess) {
         onUploadSuccess();
       }
@@ -72,6 +160,7 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
         <Upload className="mr-2 h-4 w-4" />
         Upload Report
       </Button>
+
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Upload Lab Report</DialogTitle>
@@ -80,6 +169,7 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
             provide AI-powered analysis.
           </DialogDescription>
         </DialogHeader>
+
         <div className="space-y-4 py-4">
           {!file ? (
             <div className="border-2 border-dashed rounded-lg p-8 text-center">
@@ -87,14 +177,15 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
               <p className="text-sm text-muted-foreground mb-2">
                 Drag and drop your lab report PDF here, or click to browse
               </p>
+
               <input
                 ref={fileInputRef}
                 type="file"
                 accept=".pdf,application/pdf"
                 onChange={handleFileSelect}
                 className="hidden"
-                id="lab-report-upload"
               />
+
               <Button
                 variant="outline"
                 size="sm"
@@ -115,11 +206,8 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
                     </p>
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleRemoveFile}
-                >
+
+                <Button variant="ghost" size="sm" onClick={handleRemoveFile}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -157,7 +245,8 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
             >
               Cancel
             </Button>
-            <Button onClick={handleUpload} disabled={!file}>
+
+            <Button onClick={handleUpload} disabled={!file || uploading}>
               <Upload className="mr-2 h-4 w-4" />
               Upload & Analyze
             </Button>
