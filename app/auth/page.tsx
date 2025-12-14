@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Mail } from "lucide-react";
 
-import {supabase} from "@/lib/supabaseClient";
+import {supabase} from "@/lib/supabase-client";
 
 export default function AuthPage() {
   const router = useRouter();
@@ -54,33 +54,40 @@ export default function AuthPage() {
     }, 500);
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    if(!supabase) return;
+    await supabase.auth.signOut();
+
     setUserEmail(null);
   };
 
-  const handleGmailSignIn = () => {
-    if(!supabase) return;
+  const handleGmailSignIn = async () => {
+  if (!supabase) return;
 
-    setLoading(true);
-    setError(null);
+  setLoading(true);
+  setError(null);
 
-    try {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin; 
-      const { error } = supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${appUrl}/auth/callback`,
-          queryParams: {
-            access_type: "offline",
-            prompt: "consent",
-          }
+  try {
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${appUrl}/auth/callback`,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
         },
-      });
-      if (error) {throw error;}
-    } catch (error: any) {
-      setError(error.message || "An error occurred during Google sign-in.");
-  };
+      },
+    });
 
+    if (error) throw error;
+  } catch (err: any) {
+    setError(err.message || "An error occurred during Google sign-in.");
+    setLoading(false);
+  }
+};
   const handleSSOSignIn = () => {
     if (!email.trim()) {
       alert("Please enter your work email");
