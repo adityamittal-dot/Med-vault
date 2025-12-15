@@ -1,11 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -39,6 +37,7 @@ import {
   Trash2,
   MoreVertical,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase-client";
 
 interface Note {
   id: string;
@@ -49,8 +48,6 @@ interface Note {
   encrypted: boolean;
 }
 
-
-
 export default function NotesPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -58,7 +55,68 @@ export default function NotesPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [newNote, setNewNote] = useState({ title: "", content: "", tags: "" });
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const load = async () => {
+      if (!supabase) {
+        console.warn("Supabase client not initialized");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data: userData, error: userError } =
+          await supabase.auth.getUser();
+
+        if (userError || !userData.user) {
+          setLoading(false);
+          return;
+        }
+
+        setUserEmail(userData.user.email ?? "");
+
+        const { data, error } = await supabase
+          .from("notes")
+          .select("id, title, content, created_at, tags")
+          .eq("user_id", userData.user.id)
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          if (error.code === "PGRST116") {
+            console.error("Notes table does not exist");
+          } else {
+            console.error("Error loading notes:", error);
+          }
+          return;
+        }
+
+        const mapped: Note[] = (data || []).map((row: any) => ({
+          id: row.id,
+          title: row.title,
+          content: row.content,
+          date: row.created_at?.slice(0, 10) ?? "",
+          tags: Array.isArray(row.tags)
+            ? row.tags
+            : typeof row.tags === "string"
+            ? row.tags.split(",").map((t: string) => t.trim())
+            : [],
+          encrypted: true,
+        }));
+
+        setNotes(mapped);
+      } catch (err) {
+        console.error("Unexpected error loading notes:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
 
   const filteredNotes = notes.filter(
     (note) =>
@@ -69,29 +127,63 @@ export default function NotesPage() {
       )
   );
 
-  const handleCreateNote = () => {
-    if (!newNote.title.trim()) {
-      alert("Please enter a note title.");
+  const handleCreateNote = async () => {
+    if (!newNote.title.trim()) return;
+
+    if (!supabase) {
+      alert("Authentication service unavailable");
       return;
     }
 
-    const tagsArray = newNote.tags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
+    setSaving(true);
 
-    const note: Note = {
-      id: Date.now().toString(),
-      title: newNote.title,
-      content: newNote.content,
-      date: new Date().toISOString().slice(0, 10),
-      tags: tagsArray,
-      encrypted: true,
-    };
+    try {
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser();
 
-    setNotes((prev) => [note, ...prev]);
-    setNewNote({ title: "", content: "", tags: "" });
-    setIsDialogOpen(false);
+      if (userError || !userData.user) {
+        alert("Please sign in to create notes.");
+        return;
+      }
+
+      const tagsArray = newNote.tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+
+      const { data, error } = await supabase
+        .from("notes")
+        .insert({
+          user_id: userData.user.id,
+          title: newNote.title,
+          content: newNote.content,
+          tags: tagsArray.length > 0 ? tagsArray : null,
+        })
+        .select("id, title, content, created_at, tags")
+        .single();
+
+      if (error || !data) {
+        throw error;
+      }
+
+      const note: Note = {
+        id: data.id,
+        title: data.title,
+        content: data.content,
+        date: data.created_at?.slice(0, 10) ?? "",
+        tags: Array.isArray(data.tags) ? data.tags : [],
+        encrypted: true,
+      };
+
+      setNotes((prev) => [note, ...prev]);
+      setNewNote({ title: "", content: "", tags: "" });
+      setIsDialogOpen(false);
+    } catch (err: any) {
+      console.error("Failed to create note:", err);
+      alert(err.message || "Failed to create note");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleEditNote = (note: Note) => {
@@ -105,23 +197,26 @@ export default function NotesPage() {
   };
 
   const handleUpdateNote = () => {
-    if (!editingNote || !newNote.title.trim()) return;
+    if (!editingNote) return;
 
     const tagsArray = newNote.tags
       .split(",")
       .map((tag) => tag.trim())
       .filter(Boolean);
 
-    const updatedNote: Note = {
-      ...editingNote,
-      title: newNote.title,
-      content: newNote.content,
-      tags: tagsArray,
-    };
-
     setNotes((prev) =>
-      prev.map((n) => (n.id === updatedNote.id ? updatedNote : n))
+      prev.map((n) =>
+        n.id === editingNote.id
+          ? {
+              ...n,
+              title: newNote.title,
+              content: newNote.content,
+              tags: tagsArray,
+            }
+          : n
+      )
     );
+
     setEditingNote(null);
     setNewNote({ title: "", content: "", tags: "" });
     setIsEditDialogOpen(false);
@@ -135,11 +230,7 @@ export default function NotesPage() {
   const toggleExpand = (noteId: string) => {
     setExpandedNotes((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(noteId)) {
-        newSet.delete(noteId);
-      } else {
-        newSet.add(noteId);
-      }
+      newSet.has(noteId) ? newSet.delete(noteId) : newSet.add(noteId);
       return newSet;
     });
   };
@@ -154,6 +245,7 @@ export default function NotesPage() {
             information
           </p>
         </div>
+
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -165,8 +257,7 @@ export default function NotesPage() {
             <DialogHeader>
               <DialogTitle>Create New Note</DialogTitle>
               <DialogDescription>
-                Add a secure note to your health journal. All notes are
-                encrypted.
+                Add a secure note to your health journal. All notes are encrypted.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
@@ -198,195 +289,120 @@ export default function NotesPage() {
             </div>
           </DialogContent>
         </Dialog>
-
-        {/* Edit Note Dialog */}
-        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Note</DialogTitle>
-              <DialogDescription>
-                Update your note. All changes are saved securely.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <Input
-                placeholder="Note title"
-                value={newNote.title}
-                onChange={(e) =>
-                  setNewNote({ ...newNote, title: e.target.value })
-                }
-              />
-              <Textarea
-                placeholder="Note content"
-                value={newNote.content}
-                onChange={(e) =>
-                  setNewNote({ ...newNote, content: e.target.value })
-                }
-                rows={6}
-              />
-              <Input
-                placeholder="Tags (comma-separated)"
-                value={newNote.tags}
-                onChange={(e) =>
-                  setNewNote({ ...newNote, tags: e.target.value })
-                }
-              />
-              <div className="flex gap-2">
-                <Button onClick={handleUpdateNote} className="flex-1">
-                  Save Changes
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsEditDialogOpen(false);
-                    setEditingNote(null);
-                    setNewNote({ title: "", content: "", tags: "" });
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
 
-      <div className="flex gap-4">
-        <div className="flex-1">
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search notes..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search notes..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-10"
+        />
+      </div>
 
-          <ScrollArea className="h-[600px]">
-            <div className="space-y-4">
-              {filteredNotes.length === 0 ? (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <StickyNote className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
-                    <p className="text-muted-foreground">
-                      {searchQuery
-                        ? "No notes found matching your search"
-                        : "No notes yet. Create your first note!"}
+      <ScrollArea className="h-[600px]">
+        <div className="space-y-4">
+          {filteredNotes.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center py-12">
+                <StickyNote className="h-12 w-12 text-muted-foreground mb-4 opacity-50" />
+                <p className="text-muted-foreground">
+                  {searchQuery
+                    ? "No notes found matching your search"
+                    : "No notes yet. Create your first note!"}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            filteredNotes.map((note) => {
+              const isExpanded = expandedNotes.has(note.id);
+              return (
+                <Card key={note.id}>
+                  <CardHeader>
+                    <div className="flex justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <CardTitle>{note.title}</CardTitle>
+                          <Lock className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="text-sm text-muted-foreground flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {new Date(note.date).toLocaleDateString()}
+                        </div>
+                      </div>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleEditNote(note)}>
+                            <Edit className="h-4 w-4 mr-2" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-red-600"
+                            onClick={() => handleDeleteNote(note.id)}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent>
+                    <p
+                      className={`text-sm text-muted-foreground mb-2 ${
+                        isExpanded ? "" : "line-clamp-3"
+                      }`}
+                    >
+                      {note.content}
                     </p>
+
+                    {note.content.length > 150 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleExpand(note.id)}
+                      >
+                        {isExpanded ? "Show less" : "Show more"}
+                      </Button>
+                    )}
+
+                    {note.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {note.tags.map((tag, idx) => (
+                          <Badge key={idx} variant="secondary">
+                            <Tag className="h-3 w-3 mr-1" />
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
-              ) : (
-                filteredNotes.map((note) => {
-                  const isExpanded = expandedNotes.has(note.id);
-
-                  return (
-                    <Card
-                      key={note.id}
-                      className="hover:bg-muted/50 transition-colors"
-                    >
-                      <CardHeader>
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <CardTitle className="text-lg">
-                                {note.title}
-                              </CardTitle>
-                              {note.encrypted && (
-                                <Lock className="h-4 w-4 text-muted-foreground" />
-                              )}
-                            </div>
-                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                              <div className="flex items-center gap-1">
-                                <Calendar className="h-3 w-3" />
-                                {new Date(note.date).toLocaleDateString()}
-                              </div>
-                            </div>
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => handleEditNote(note)}
-                              >
-                                <Edit className="h-4 w-4 mr-2" />
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleDeleteNote(note.id)}
-                                className="text-red-600"
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        <p
-                          className={`text-sm text-muted-foreground mb-3 ${
-                            isExpanded ? "" : "line-clamp-3"
-                          }`}
-                        >
-                          {note.content}
-                        </p>
-                        {note.content.length > 150 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleExpand(note.id)}
-                            className="text-xs mb-3"
-                          >
-                            {isExpanded ? "Show less" : "Show more"}
-                          </Button>
-                        )}
-                        {note.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {note.tags.map((tag, index) => (
-                              <Badge
-                                key={index}
-                                variant="secondary"
-                                className="text-xs"
-                              >
-                                <Tag className="h-3 w-3 mr-1" />
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })
-              )}
-            </div>
-          </ScrollArea>
+              );
+            })
+          )}
         </div>
-      </div>
+      </ScrollArea>
 
       <Card>
         <CardHeader>
           <CardTitle>Security & Privacy</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <Lock className="h-4 w-4" />
-              <p>All notes are encrypted end-to-end for maximum security</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Lock className="h-4 w-4" />
-              <p>Your data is stored securely and only accessible by you</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Lock className="h-4 w-4" />
-              <p>Notes are automatically synced across your devices</p>
-            </div>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <Lock className="h-4 w-4" /> End-to-end encrypted notes
+          </div>
+          <div className="flex items-center gap-2">
+            <Lock className="h-4 w-4" /> Accessible only by you
+          </div>
+          <div className="flex items-center gap-2">
+            <Lock className="h-4 w-4" /> Secure cloud storage
           </div>
         </CardContent>
       </Card>
