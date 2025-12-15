@@ -123,6 +123,13 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
 
       const data = await response.json();
 
+      if (data.analysisStatus === "failed") {
+  setError(
+    "Report uploaded successfully, but AI analysis could not be generated."
+  );
+}
+
+
       if (!response.ok) {
         throw new Error(
           data.error || data.details || "failed to upload lab report"

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { analyzeLabReportPdfFormatBuffer } from "@/lib/gemini";
+import {
+  analyzeLabReportPdfFormatBuffer,
+  analyzeLabReportText,
+} from "@/lib/gemini";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -82,24 +85,47 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // ✅ AI analysis (UNCHANGED LOGIC)
+    // ❌ pdf-parse REMOVED (incompatible with Next.js + Turbopack)
+    const extractedText = "";
+
+    // ✅ AI analysis (PDF first)
     let aiAnalysis: string | null = null;
+    let analysisStatus: "completed" | "failed" = "failed";
+
     try {
       aiAnalysis = await analyzeLabReportPdfFormatBuffer(
         buffer,
         fileName || file.name
       );
+      if (aiAnalysis) {
+        analysisStatus = "completed";
+      }
     } catch (error) {
       console.error("AI analysis error:", error);
     }
 
-    // ✅ INSERT INTO SUPABASE (ONLY TABLE NAME FIXED)
+    // 🔁 FALLBACK: text-based AI (will activate once OCR is added)
+    if (!aiAnalysis && extractedText) {
+      try {
+        aiAnalysis = await analyzeLabReportText(
+          extractedText ||
+            "This is a medical lab report. Provide a general explanation of lab results."
+        );
+        if (aiAnalysis) {
+          analysisStatus = "completed";
+        }
+      } catch (error) {
+        console.error("Fallback AI analysis error:", error);
+      }
+    }
+
+    // ✅ INSERT INTO SUPABASE
     const { data: labReport, error: dbError } = await supabase
-      .from("lab_reports") // 🔧 FIXED (was lab_report)
+      .from("lab_reports")
       .insert({
         user_id: userId,
         file_name: fileName || file.name,
-        raw_text: "PDF text extraction not available",
+        raw_text: extractedText || "No extractable text found",
         structured_data: null,
         ai_analysis: aiAnalysis,
         uploaded_at: new Date().toISOString(),
@@ -115,15 +141,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ SUCCESS RESPONSE — EXACTLY AS YOU WROTE IT
     return NextResponse.json({
       success: true,
+      analysisStatus,
       labReport: {
         id: labReport.id,
         file_name: labReport.file_name,
         ai_analysis: labReport.ai_analysis,
         uploaded_at: labReport.uploaded_at,
-        rawTextLength: 0,
+        rawTextLength: extractedText.length,
       },
     });
   } catch (error) {

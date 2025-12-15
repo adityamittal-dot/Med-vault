@@ -49,36 +49,10 @@ interface Note {
   encrypted: boolean;
 }
 
-// Dummy data for starter template
-const initialDummyNotes: Note[] = [
-  {
-    id: "1",
-    title: "Annual Physical Notes",
-    content: "Had my annual physical today. Blood pressure is normal, cholesterol levels are good. Doctor recommended maintaining current exercise routine.",
-    date: "2024-01-20",
-    tags: ["appointment", "health"],
-    encrypted: true,
-  },
-  {
-    id: "2",
-    title: "Medication Schedule",
-    content: "Morning: Vitamin D (1000 IU), Multivitamin\nEvening: Omega-3 (1000mg)\nTake with meals for better absorption.",
-    date: "2024-01-10",
-    tags: ["medication", "schedule"],
-    encrypted: true,
-  },
-  {
-    id: "3",
-    title: "Doctor Appointment Reminder",
-    content: "Follow-up appointment scheduled for February 15th at 2:00 PM. Bring recent lab results and list of current medications.",
-    date: "2024-01-05",
-    tags: ["appointment", "reminder"],
-    encrypted: true,
-  },
-];
+
 
 export default function NotesPage() {
-  const [notes, setNotes] = useState<Note[]>(initialDummyNotes);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);

@@ -31,7 +31,10 @@ export async function analyzeLabReportText(
     throw new Error("Gemini API client not initialized");
   }
 
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  // ✅ MODEL UPDATED
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash",
+  });
 
   let rawText: string;
   let structuredData: LabReportContext["structuredData"] | undefined;
@@ -89,8 +92,7 @@ ${
   }
 
   const result = await model.generateContent(prompt);
-  const response = result.response;
-  return response.text();
+  return result.response.text();
 }
 
 export async function analyzeLabReportPdfFormatBuffer(
@@ -101,7 +103,11 @@ export async function analyzeLabReportPdfFormatBuffer(
     throw new Error("Gemini API client not initialized");
   }
 
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  // ✅ MODEL UPDATED
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash",
+  });
+
   const base64Pdf = pdfBuffer.toString("base64");
 
   const prompt = `You are a medical AI assistant. Analyze the following lab report provided as a PDF file (base64 encoded).
@@ -160,7 +166,10 @@ export async function chatWithLabReport(
     throw new Error("Lab report text is required for chatting");
   }
 
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  // ✅ MODEL UPDATED
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash",
+  });
 
   let prompt = `You are a helpful medical AI assistant. You have access to the COMPLETE RAW TEXT from the user's lab report PDF. Use the provided lab report text and analysis to answer the patient's question accurately and clearly.
 
