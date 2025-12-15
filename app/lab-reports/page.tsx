@@ -46,7 +46,7 @@ interface LabReport {
 
 
 export default function LabReportsPage() {
-  const [labReports, setLabReports] = useState<LabReport[]>();
+  const [labReports, setLabReports] = useState<LabReport[]>([]);
   const [selectedReport, setSelectedReport] = useState<LabReport | null>(null);
   const [loading, setLoading] = useState(true);
   

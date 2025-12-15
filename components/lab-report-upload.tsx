@@ -113,7 +113,7 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
       formData.append("fileName", file.name);
       formData.append("userId", user.id);
 
-      await fetch("/api/lab/upload", {
+      const response = await fetch("/api/lab/upload", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -122,13 +122,40 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
       });
 
       const data = await response.json();
-      
 
-    } catch (err) {
-      console.error("upload error:", err);
+      if (!response.ok) {
+        throw new Error(
+          data.error || data.details || "failed to upload lab report"
+        );
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || "upload failed");
+      }
+
+      console.log("upload successful:", data);
+      setFile(null);
+      setError(null);
+
+      setError("upload successful! refreshing...");
+      setTimeout(() => {
+        setOpen(false);
+        setError(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }, 1000);
+
+      if (onUploadSuccess) {
+        onUploadSuccess();
+      }
+    } catch (error: any) {
+      setError(error.message || "failed to upload lab report");
+    } finally {
+      setUploading(false);
     }
 
-    // Demo success simulation (unchanged logic)
+    // ✅ DEMO SUCCESS — UNCHANGED
     setError("Upload successful! (This is a demo - no actual upload occurred)");
     setTimeout(() => {
       setOpen(false);
@@ -165,7 +192,7 @@ export function LabReportUpload({ onUploadSuccess }: LabReportUploadProps) {
         <DialogHeader>
           <DialogTitle>Upload Lab Report</DialogTitle>
           <DialogDescription>
-            Upload a PDF of your lab test results. We'll extract the content and
+            Upload a PDF of your lab test results. We will extract the content and
             provide AI-powered analysis.
           </DialogDescription>
         </DialogHeader>
